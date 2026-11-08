@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Partículas 3D Interactivas con Control Gestual</title>
+  <!-- Tailwind CSS CDN para uso directo sin compilador -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <!-- MediaPipe Hands & Camera Utils CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      user-select: none;
+      background-color: #020617;
+      color: #f8fafc;
+    }
+    .font-display { font-family: 'Outfit', sans-serif; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    input[type="range"] { accent-color: #38bdf8; }
+  </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden bg-slate-950">
+
+  <!-- 3D Canvas Viewport -->
+  <div id="canvas-container" class="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing"></div>
+
+  <!-- Top Navigation Header -->
+  <header class="absolute top-0 left-0 right-0 z-20 flex items-center justify-between gap-4 px-6 py-4 pointer-events-none">
+    <div class="flex items-center gap-3 pointer-events-auto">
+      <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 shadow-lg">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V4a1.5 1.5 0 013 0v4m0-4a1.5 1.5 0 013 0v7m-3 0v3"/></svg>
+      </div>
+      <div>
+        <h1 class="text-base font-bold tracking-tight text-white font-display whitespace-nowrap">Partículas 3D Gestuales</h1>
+        <p class="text-[11px] text-slate-400 whitespace-nowrap">Control de tensión y expansión con Three.js</p>
+      </div>
+    </div>
+
+    <div class="hidden md:flex items-center gap-3 text-xs pointer-events-auto bg-slate-900/80 backdrop-blur-md px-4 py-1.5 rounded-full border border-slate-800 shadow-md">
+      <span class="text-slate-400">Guía:</span>
+      <span class="text-slate-200">
+        Puños para <strong class="text-amber-400 font-medium">comprimir</strong> · Abrir para <strong class="text-sky-400 font-medium">expandir</strong> · Separar manos para <strong class="text-emerald-400 font-medium">escalar</strong>
+      </span>
+    </div>
+
+    <div class="flex items-center gap-2 pointer-events-auto">
+      <button id="btn-toggle-manual" class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer">
+        <span>Modo Manual</span>
+      </button>
+      <button id="btn-reset-view" title="Restablecer Vista" class="p-2 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700 text-slate-300 cursor-pointer">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      </button>
+      <button id="btn-fullscreen" title="Pantalla Completa" class="p-2 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700 text-slate-300 cursor-pointer">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Ventana Modal de Autorización de Cámara -->
+  <div id="camera-modal" class="absolute top-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-md px-4">
+    <div class="bg-slate-900/95 backdrop-blur-md border border-sky-500/30 rounded-xl p-5 shadow-2xl text-slate-100">
+      <div class="flex items-start gap-3">
+        <div class="p-2.5 rounded-lg bg-sky-500/10 text-sky-400 shrink-0">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        </div>
+        <div class="flex-1">
+          <h3 class="text-base font-semibold text-white font-display">Control Gestual con Cámara Web</h3>
+          <p class="mt-1 text-xs text-slate-300 leading-relaxed">
+            Permite la cámara para detectar la tensión y el cierre de ambas manos en tiempo real.
+          </p>
+          <div class="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-400">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+            <span>Procesamiento 100% local en tu navegador (privado)</span>
+          </div>
+
+          <div class="mt-4 flex items-center gap-2.5">
+            <button id="btn-start-camera" class="flex-1 py-2 px-4 text-xs font-semibold rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 transition-colors shadow-lg shadow-sky-500/20 flex items-center justify-center gap-2 cursor-pointer">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              <span>Autorizar y Conectar Cámara</span>
+            </button>
+            <button id="btn-dismiss-modal" class="py-2 px-3 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors border border-slate-700 cursor-pointer">
+              Modo Manual
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mini Webcam HUD (Superior Derecha) -->
+  <div id="webcam-hud" class="hidden absolute top-4 right-4 z-20 flex flex-col items-end">
+    <div class="bg-slate-900/85 backdrop-blur-md border border-slate-800 rounded-xl overflow-hidden shadow-xl w-48">
+      <div class="px-2.5 py-1.5 bg-slate-800/60 border-b border-slate-800 flex items-center justify-between text-[11px]">
+        <span class="font-medium text-slate-200 flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          Visión Gestual
+        </span>
+        <button id="btn-toggle-cam-view" class="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-700">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+        </button>
+      </div>
+      <div id="cam-preview-container" class="relative w-48 h-32 bg-black flex items-center justify-center overflow-hidden">
+        <video id="webcam-video" playsinline muted class="w-full h-full object-cover -scale-x-100 opacity-60"></video>
+        <canvas id="landmark-canvas" width="192" height="128" class="absolute inset-0 w-full h-full pointer-events-none -scale-x-100"></canvas>
+      </div>
+      <div class="p-2 border-t border-slate-800 bg-slate-900/70">
+        <label class="block text-[10px] text-slate-400 mb-1">Cámara:</label>
+        <select id="camera-select" class="w-full text-[11px] bg-slate-800 text-slate-200 rounded px-1.5 py-1 border border-slate-700 focus:outline-none"></select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Puerto de Control Inferior -->
+  <div id="bottom-dock" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 w-[95%] max-w-3xl transition-transform duration-300 ease-out select-none">
+    <div class="flex justify-center mb-1">
+      <button id="btn-collapse" class="px-4 py-1 rounded-t-lg bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border-t border-x border-slate-700/80 text-xs font-medium flex items-center gap-1.5 backdrop-blur-md cursor-pointer shadow-lg">
+        <span id="collapse-label">▾ Ocultar Controles (Modo Zen)</span>
+      </button>
+    </div>
+
+    <div class="bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-2xl p-4 shadow-2xl text-slate-200">
+      <!-- Encabezado de Pestañas -->
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-3 gap-2 flex-wrap">
+        <div class="flex items-center gap-1.5 p-1 bg-slate-950/60 rounded-xl border border-slate-800/80">
+          <button data-tab="templates" class="tab-btn px-3 py-1.5 text-xs font-semibold rounded-lg transition-all bg-sky-500 text-slate-950">Plantillas</button>
+          <button data-tab="colors" class="tab-btn px-3 py-1.5 text-xs font-semibold rounded-lg transition-all text-slate-400 hover:text-slate-200">Color y Luz</button>
+          <button data-tab="hands" class="tab-btn px-3 py-1.5 text-xs font-semibold rounded-lg transition-all text-slate-400 hover:text-slate-200">Control Manos</button>
+          <button data-tab="perf" class="tab-btn px-3 py-1.5 text-xs font-semibold rounded-lg transition-all text-slate-400 hover:text-slate-200">Rendimiento</button>
+        </div>
+
+        <div class="flex items-center gap-3 text-xs font-mono text-slate-400">
+          <span>FPS: <strong id="fps-counter" class="text-emerald-400 font-semibold">60</strong></span>
+          <span class="text-slate-600">|</span>
+          <span>Pts: <strong id="pts-counter" class="text-sky-400 font-semibold">18,000</strong></span>
+        </div>
+      </div>
+
+      <!-- Pestaña 1: Plantillas (13 opciones con scroll adaptable) -->
+      <div id="tab-templates" class="tab-content grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-60 overflow-y-auto pr-1">
+        <button data-shape="buddha" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-sky-500/15 border-sky-500/80 text-white">
+          <div class="text-xs font-semibold font-display">Estatua Buda</div>
+          <div class="text-[10px] text-slate-400">Loto, meditación y aura</div>
+        </button>
+        <button data-shape="jesus" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60">
+          <div class="text-xs font-semibold font-display">Jesús / Cristo</div>
+          <div class="text-[10px] text-slate-400">Brazos abiertos y halo sagrado</div>
+        </button>
+        <button data-shape="atom" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60">
+          <div class="text-xs font-semibold font-display">Átomo Cuántico</div>
+          <div class="text-[10px] text-slate-400">Núcleo y 4 órbitas elípticas</div>
+        </button>
+        <button data-shape="saturn" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60">
+          <div class="text-xs font-semibold font-display">Saturno</div>
+          <div class="text-[10px] text-slate-400">Esfera y anillos inclinados</div>
+        </button>
+        <button data-shape="flower" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60">
+          <div class="text-xs font-semibold font-display">Flor / Loto</div>
+          <div class="text-[10px] text-slate-400">Pétalos escalonados Fibonacci</div>
+        </button>
+        <button data-shape="heart" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60">
+          <div class="text-xs font-semibold font-display">Corazón</div>
+          <div class="text-[10px] text-slate-400">Cardioide 3D con volumen</div>
+        </button>
+        <button data-shape="skull" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60">
+          <div class="text-xs font-semibold font-display">Calavera 3D</div>
+          <div class="text-[10px] text-slate-400">Cráneo, cuencas y mandíbula</div>
+        </button>
+        <button data-shape="butterfly" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60">
+          <div class="text-xs font-semibold font-display">Mariposa de Luz</div>
+          <div class="text-[10px] text-slate-400">Alas batientes y curvatura</div>
+        </button>
+        <button data-shape="blackhole" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60">
+          <div class="text-xs font-semibold font-display">Agujero Negro</div>
+          <div class="text-[10px] text-slate-400">Disco de acreción relativista</div>
+        </button>
+        <button data-shape="fireworks" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60">
+          <div class="text-xs font-semibold font-display">Fuegos Artificiales</div>
+          <div class="text-[10px] text-slate-400">Explosión y estelas</div>
+        </button>
+        <button data-shape="galaxy" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60">
+          <div class="text-xs font-semibold font-display">Galaxia Espiral</div>
+          <div class="text-[10px] text-slate-400">Brazos logarítmicos</div>
+        </button>
+        <button data-shape="dna" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60">
+          <div class="text-xs font-semibold font-display">Hélice ADN</div>
+          <div class="text-[10px] text-slate-400">Doble espiral unida</div>
+        </button>
+        <button data-shape="torus" class="shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60">
+          <div class="text-xs font-semibold font-display">Toroide Cuántico</div>
+          <div class="text-[10px] text-slate-400">Nudo y flujo cuántico</div>
+        </button>
+      </div>
+
+      <!-- Pestaña 2: Colores -->
+      <div id="tab-colors" class="tab-content hidden space-y-3">
+        <div>
+          <span class="text-[11px] font-medium text-slate-400 block mb-1.5">Temas de Color Rápidos:</span>
+          <div class="flex flex-wrap gap-1.5">
+            <button class="palette-btn px-2.5 py-1 text-xs rounded-lg bg-slate-950/60 border border-slate-800 hover:border-slate-700 text-slate-200" data-p="#ffd700" data-s="#ff8800" data-mode="gold">Oro Buda / Divino</button>
+            <button class="palette-btn px-2.5 py-1 text-xs rounded-lg bg-slate-950/60 border border-slate-800 hover:border-slate-700 text-slate-200" data-p="#ff2244" data-s="#ffaa00" data-mode="fire">Fuego</button>
+            <button class="palette-btn px-2.5 py-1 text-xs rounded-lg bg-slate-950/60 border border-slate-800 hover:border-slate-700 text-slate-200" data-p="#00f0ff" data-s="#b026ff" data-mode="cosmic">Galaxia Neón</button>
+            <button class="palette-btn px-2.5 py-1 text-xs rounded-lg bg-slate-950/60 border border-slate-800 hover:border-slate-700 text-slate-200" data-p="#10b981" data-s="#064e3b" data-mode="gradient">Esmeralda</button>
+            <button class="palette-btn px-2.5 py-1 text-xs rounded-lg bg-slate-950/60 border border-slate-800 hover:border-slate-700 text-slate-200" data-p="#ffffff" data-s="#38bdf8" data-mode="rainbow">Arcoíris</button>
+            <button class="palette-btn px-2.5 py-1 text-xs rounded-lg bg-slate-950/60 border border-slate-800 hover:border-slate-700 text-slate-200" data-p="#38bdf8" data-s="#1e3a8a" data-mode="gradient">Zafiro Estelar</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-800">
+          <div class="flex items-center gap-3">
+            <div>
+              <label class="text-[10px] text-slate-400 block mb-1">Color Principal:</label>
+              <input type="color" id="input-primary-color" value="#ffd700" class="w-8 h-8 rounded border border-slate-700 bg-transparent cursor-pointer" />
+            </div>
+            <div>
+              <label class="text-[10px] text-slate-400 block mb-1">Color Secundario:</label>
+              <input type="color" id="input-secondary-color" value="#ff8800" class="w-8 h-8 rounded border border-slate-700 bg-transparent cursor-pointer" />
+            </div>
+          </div>
+          <div>
+            <div class="flex justify-between text-[11px] text-slate-300 mb-1">
+              <span>Tamaño Partícula:</span>
+              <span id="label-particle-size" class="font-mono text-sky-400">1.8px</span>
+            </div>
+            <input type="range" id="input-particle-size" min="0.5" max="4.0" step="0.1" value="1.8" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer" />
+          </div>
+          <div>
+            <div class="flex justify-between text-[11px] text-slate-300 mb-1">
+              <span>Intensidad de Brillo:</span>
+              <span id="label-glow" class="font-mono text-sky-400">100%</span>
+            </div>
+            <input type="range" id="input-glow" min="0.2" max="2.0" step="0.1" value="1.0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Pestaña 3: Control de Manos -->
+      <div id="tab-hands" class="tab-content hidden space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div class="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800">
+            <div class="flex justify-between items-center text-xs">
+              <span class="font-medium text-slate-300">Mano Izquierda:</span>
+              <span id="status-left-hand" class="text-[11px] text-slate-500 font-semibold">No detectada</span>
+            </div>
+            <div class="mt-2">
+              <div class="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                <span>Cierre / Tensión:</span>
+                <span id="num-left-fist" class="font-mono">0%</span>
+              </div>
+              <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div id="bar-left-fist" class="h-full bg-gradient-to-r from-sky-400 to-amber-400 transition-all duration-75" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800">
+            <div class="flex justify-between items-center text-xs">
+              <span class="font-medium text-slate-300">Mano Derecha:</span>
+              <span id="status-right-hand" class="text-[11px] text-slate-500 font-semibold">No detectada</span>
+            </div>
+            <div class="mt-2">
+              <div class="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                <span>Cierre / Tensión:</span>
+                <span id="num-right-fist" class="font-mono">0%</span>
+              </div>
+              <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div id="bar-right-fist" class="h-full bg-gradient-to-r from-sky-400 to-amber-400 transition-all duration-75" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800">
+            <span class="text-xs font-medium text-slate-300 block mb-1">Gesto Activo:</span>
+            <div id="active-gesture-label" class="text-xs font-semibold text-sky-300 truncate">Esperando manos...</div>
+            <div class="text-[10px] text-slate-400 mt-1 flex justify-between font-mono">
+              <span>Escala: <b id="val-scale" class="text-slate-200">1.00x</b></span>
+              <span>Expansión: <b id="val-exp" class="text-slate-200">0.00</b></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-2.5 bg-slate-950/40 border border-slate-800 rounded-xl space-y-2">
+          <div class="flex justify-between text-[11px] text-slate-300">
+            <span class="font-semibold text-sky-400">Controles Deslizantes Manuales:</span>
+            <span class="text-[10px] text-slate-400">Simulación interactiva</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <div class="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                <span>Tensión Puños (Compresión):</span>
+                <span id="lbl-sim-fist" class="font-mono text-amber-300">0%</span>
+              </div>
+              <input type="range" id="sim-fist" min="0" max="1" step="0.02" value="0" class="w-full h-1 bg-slate-800 rounded appearance-none cursor-pointer" />
+            </div>
+            <div>
+              <div class="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                <span>Distancia Manos (Escala):</span>
+                <span id="lbl-sim-dist" class="font-mono text-sky-300">1.00x</span>
+              </div>
+              <input type="range" id="sim-dist" min="0" max="1" step="0.02" value="0.25" class="w-full h-1 bg-slate-800 rounded appearance-none cursor-pointer" />
+            </div>
+            <div>
+              <div class="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                <span>Manos Abiertas (Expansión):</span>
+                <span id="lbl-sim-exp" class="font-mono text-emerald-300">0%</span>
+              </div>
+              <input type="range" id="sim-exp" min="0" max="1" step="0.02" value="0" class="w-full h-1 bg-slate-800 rounded appearance-none cursor-pointer" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pestaña 4: Rendimiento -->
+      <div id="tab-perf" class="tab-content hidden space-y-3">
+        <span class="text-xs font-semibold text-slate-200 block">Optimización para Intel Core i5-6200U (Gráficos Intel HD 520):</span>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <button data-perf="eco" class="perf-btn p-3 rounded-xl border text-left bg-slate-950/40 border-slate-800 text-slate-400">
+            <div class="flex justify-between"><strong class="text-xs text-emerald-400">Modo Eco</strong><span class="text-[10px] font-mono">10,000 pts</span></div>
+            <p class="mt-1 text-[11px] text-slate-300">Ultra ligero. Mínimo consumo térmico y batería.</p>
+          </button>
+          <button data-perf="balanced" class="perf-btn p-3 rounded-xl border text-left bg-sky-500/15 border-sky-500/70 text-white">
+            <div class="flex justify-between"><strong class="text-xs text-sky-400">Equilibrado</strong><span class="text-[10px] font-mono">18,000 pts</span></div>
+            <p class="mt-1 text-[11px] text-slate-300">60 FPS continuos con alta densidad de partículas.</p>
+          </button>
+          <button data-perf="ultra" class="perf-btn p-3 rounded-xl border text-left bg-slate-950/40 border-slate-800 text-slate-400">
+            <div class="flex justify-between"><strong class="text-xs text-purple-400">Modo Ultra</strong><span class="text-[10px] font-mono">30,000 pts</span></div>
+            <p class="mt-1 text-[11px] text-slate-300">Máximo detalle y resolución geométrica.</p>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- ESTADO GLOBAL DE LA APLICACIÓN ---
+    const config = {
+      shape: 'buddha',
+      count: 18000,
+      particleSize: 1.8,
+      primaryColor: '#ffd700',
+      secondaryColor: '#ff8800',
+      colorMode: 3, // 0: single, 1: grad, 2: rainbow, 3: gold, 4: fire, 5: cosmic
+      glow: 1.0,
+      rotationSpeed: 0.15,
+      expansionMultiplier: 1.2
+    };
+
+    let targetScale = 1.0;
+    let targetExpansion = 0.0;
+    let targetFistTension = 0.0;
+    let smoothedScale = 1.0;
+    let smoothedExpansion = 0.0;
+    let smoothedFistTension = 0.0;
+
+    let sceneRotation = { x: 0.1, y: 0 };
+    let targetRotation = { x: 0.1, y: 0 };
+    let isPointerDown = false;
+    let prevPointer = { x: 0, y: 0 };
+
+    // --- GENERADORES MATEMÁTICOS DE TODAS LAS FORMAS 3D (Float32Array) ---
+    function generateShape(shape, count) {
+      const pos = new Float32Array(count * 3);
+      if (shape === 'heart') {
+        for (let i = 0; i < count; i++) {
+          const idx = i * 3;
+          const t = Math.PI * (Math.random() * 2 - 1);
+          const v = Math.pow(Math.random(), 0.6);
+          const x = 16 * Math.pow(Math.sin(t), 3);
+          const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+          const z = (Math.random() * 2 - 1) * Math.max(1.2, 6 * (1 - Math.abs(t)/Math.PI));
+          const s = 0.45 * v;
+          pos[idx] = x * s + (Math.random() - 0.5) * 0.4;
+          pos[idx+1] = (y + 2.5) * s + (Math.random() - 0.5) * 0.4;
+          pos[idx+2] = z * s * 1.3 + (Math.random() - 0.5) * 0.4;
+        }
+      } else if (shape === 'flower') {
+        const phi = Math.PI * (3 - Math.sqrt(5));
+        for (let i = 0; i < count; i++) {
+          const idx = i * 3;
+          const p = i / count;
+          if (p < 0.22) {
+            const r = Math.sqrt(p / 0.22) * 1.8;
+            const theta = i * phi;
+            pos[idx] = r * Math.cos(theta);
+            pos[idx+1] = -1.2 + Math.pow(r / 1.8, 2) * 0.8;
+            pos[idx+2] = r * Math.sin(theta);
+          } else {
+            const pt = (p - 0.22) / 0.78;
+            const tier = pt < 0.33 ? 1 : pt < 0.66 ? 2 : 3;
+            const num = tier === 1 ? 5 : tier === 2 ? 8 : 12;
+            const rMax = tier === 1 ? 4.5 : tier === 2 ? 7.0 : 9.5;
+            const angle = Math.random() * Math.PI * 2;
+            const r = Math.random() * rMax * (0.6 + 0.4 * Math.max(0, Math.cos(angle * num)));
+            const y = tier === 1 ? -0.5 + Math.sin(r/rMax * Math.PI/2) * 2.8 : -1.5 + Math.sin(r/rMax * Math.PI/2) * 2.0;
+            pos[idx] = r * Math.cos(angle) + (Math.random() - 0.5) * 0.25;
+            pos[idx+1] = y + (Math.random() - 0.5) * 0.3;
+            pos[idx+2] = r * Math.sin(angle) + (Math.random() - 0.5) * 0.25;
+          }
+        }
+      } else if (shape === 'saturn') {
+        const sphereC = Math.floor(count * 0.35);
+        const cosT = Math.cos(0.46), sinT = Math.sin(0.46);
+        for (let i = 0; i < sphereC; i++) {
+          const idx = i * 3;
+          const u = Math.random(), v = Math.random();
+          const theta = u * 2 * Math.PI, phi = Math.acos(2 * v - 1);
+          const r = 3.6 * Math.cbrt(Math.random() * 0.7 + 0.3);
+          const x = r * Math.sin(phi) * Math.cos(theta);
+          const y = r * Math.cos(phi) * 0.88;
+          const z = r * Math.sin(phi) * Math.sin(theta);
+          pos[idx] = x;
+          pos[idx+1] = y * cosT - z * sinT;
+          pos[idx+2] = y * sinT + z * cosT;
+        }
+        for (let i = sphereC; i < count; i++) {
+          const idx = i * 3;
+          let r = 4.8 + Math.random() * (10.6 - 4.8);
+          if (r > 7.4 && r < 7.9) r = Math.random() > 0.5 ? 7.3 : 8.0;
+          const angle = Math.random() * Math.PI * 2;
+          const x = r * Math.cos(angle), y = (Math.random() - 0.5) * 0.15, z = r * Math.sin(angle);
+          pos[idx] = x;
+          pos[idx+1] = y * cosT - z * sinT;
+          pos[idx+2] = y * sinT + z * cosT;
+        }
+      } else if (shape === 'buddha') {
+        const baseC = Math.floor(count * 0.2), legsC = Math.floor(count * 0.22), bodyC = Math.floor(count * 0.25), headC = Math.floor(count * 0.15);
+        let cur = 0;
+        for (let i = 0; i < baseC; i++) {
+          const idx = (cur++) * 3, ang = Math.random() * Math.PI * 2;
+          const r = (3.5 + Math.random() * 0.8) * (0.85 + 0.15 * Math.cos(ang * 12));
+          pos[idx] = r * Math.cos(ang); pos[idx+1] = -5.8 + Math.random() * 1.5; pos[idx+2] = r * Math.sin(ang) * 0.75;
+        }
+        for (let i = 0; i < legsC; i++) {
+          const idx = (cur++) * 3, side = Math.random() > 0.5 ? 1 : -1;
+          const legA = Math.random() * Math.PI;
+          pos[idx] = side * 2.8 + Math.cos(legA) * 1.6 + (Math.random()-0.5)*0.5;
+          pos[idx+1] = -4.2 + Math.sin(legA) * 0.9 + (Math.random()-0.5)*0.4;
+          pos[idx+2] = 0.3 + (Math.random()-0.5)*1.2;
+        }
+        for (let i = 0; i < bodyC; i++) {
+          const idx = (cur++) * 3, yF = Math.random(), y = -3.5 + yF * 4.2;
+          const w = (1.4 + yF * 1.6) * Math.sqrt(Math.random()), ang = Math.random() * Math.PI * 2;
+          pos[idx] = Math.cos(ang) * w + Math.sin(y * 1.5) * 0.3; pos[idx+1] = y; pos[idx+2] = Math.sin(ang) * (1.1 - yF*0.2) * Math.sqrt(Math.random());
+        }
+        for (let i = 0; i < headC; i++) {
+          const idx = (cur++) * 3;
+          const u = Math.random(), v = Math.random(), th = u * 2 * Math.PI, ph = Math.acos(2 * v - 1);
+          const r = 1.25 * Math.cbrt(Math.random() * 0.6 + 0.4);
+          pos[idx] = r * Math.sin(ph) * Math.cos(th); pos[idx+1] = 2.4 + r * Math.cos(ph) * 1.25; pos[idx+2] = r * Math.sin(ph) * Math.sin(th);
+        }
+        while (cur < count) {
+          const idx = (cur++) * 3, ang = Math.random() * Math.PI * 2;
+          const r = 2.0 + Math.pow(Math.random(), 0.7) * 4.2 + Math.sin(ang * 16) * 0.3;
+          pos[idx] = r * Math.cos(ang); pos[idx+1] = 2.0 + r * Math.sin(ang) * 1.05; pos[idx+2] = -0.9 - Math.random() * 0.8;
+        }
+      } else if (shape === 'jesus') {
+        const robeC = Math.floor(count * 0.28), armsC = Math.floor(count * 0.28), chestC = Math.floor(count * 0.16), headC = Math.floor(count * 0.14);
+        let cur = 0;
+        // Túnica con caída cónica y pliegues
+        for (let i = 0; i < robeC; i++) {
+          const idx = (cur++) * 3, yF = Math.random(), y = -6.5 + yF * 5.5;
+          const r = (1.3 + (1.0 - yF) * 1.9) * (0.88 + 0.12 * Math.cos(Math.random() * Math.PI * 16)) * Math.sqrt(Math.random());
+          const ang = Math.random() * Math.PI * 2;
+          pos[idx] = r * Math.cos(ang); pos[idx+1] = y; pos[idx+2] = r * Math.sin(ang) * 0.75;
+        }
+        // Brazos abiertos y extendidos
+        for (let i = 0; i < armsC; i++) {
+          const idx = (cur++) * 3, side = Math.random() > 0.5 ? 1 : -1, t = Math.random();
+          const x = side * (1.4 + t * 5.8), y = 1.2 + Math.sin(t * Math.PI * 0.6) * 0.7 - 0.1 * t;
+          pos[idx] = x; pos[idx+1] = y - Math.random() * (0.35 + t * 0.45); pos[idx+2] = (Math.random() - 0.5) * 0.3;
+        }
+        // Pecho y Sagrado Corazón
+        for (let i = 0; i < chestC; i++) {
+          const idx = (cur++) * 3;
+          if (Math.random() < 0.45) {
+            const u = Math.random(), v = Math.random(), th = u * 2 * Math.PI, ph = Math.acos(2 * v - 1);
+            const isRay = Math.random() < 0.35, ray = isRay ? 0.6 + Math.random() * 1.4 : 0;
+            const rH = 0.65 * Math.cbrt(Math.random()) + ray;
+            pos[idx] = rH * Math.sin(ph) * Math.cos(th); pos[idx+1] = 0.4 + rH * Math.cos(ph) * 1.1; pos[idx+2] = 0.85 + rH * Math.sin(ph) * Math.sin(th);
+          } else {
+            const y = -1.0 + Math.random() * 2.8, w = 1.2 + ((y+1)/2.8) * 0.6, ang = Math.random() * Math.PI * 2;
+            pos[idx] = Math.cos(ang) * w * Math.sqrt(Math.random()); pos[idx+1] = y; pos[idx+2] = Math.sin(ang) * 0.85 * Math.sqrt(Math.random());
+          }
+        }
+        // Cabeza y cabello
+        for (let i = 0; i < headC; i++) {
+          const idx = (cur++) * 3;
+          if (Math.random() < 0.5) {
+            const u = Math.random(), v = Math.random(), th = u * 2 * Math.PI, ph = Math.acos(2 * v - 1);
+            const r = 1.05 * Math.cbrt(Math.random() * 0.6 + 0.4);
+            pos[idx] = r * Math.sin(ph) * Math.cos(th); pos[idx+1] = 2.6 + r * Math.cos(ph) * 1.35; pos[idx+2] = r * Math.sin(ph) * Math.sin(th);
+          } else {
+            const side = Math.random() > 0.5 ? 1 : -1, t = Math.random();
+            pos[idx] = side * (0.95 + t * 0.6); pos[idx+1] = 3.2 - t * 2.2; pos[idx+2] = -0.3 + (Math.random() - 0.5) * 0.4;
+          }
+        }
+        // Halo sagrado cruciforme
+        while (cur < count) {
+          const idx = (cur++) * 3;
+          if (Math.random() < 0.35) {
+            const isH = Math.random() > 0.5, ray = (1.5 + Math.random() * 3.8) * (Math.random() > 0.5 ? 1 : -1);
+            pos[idx] = isH ? ray : (Math.random() - 0.5) * 0.3; pos[idx+1] = 2.7 + (isH ? (Math.random() - 0.5) * 0.3 : ray); pos[idx+2] = -0.7;
+          } else {
+            const ang = Math.random() * Math.PI * 2, r = 1.6 + Math.pow(Math.random(), 0.7) * 3.2;
+            pos[idx] = r * Math.cos(ang); pos[idx+1] = 2.7 + r * Math.sin(ang); pos[idx+2] = -0.7;
+          }
+        }
+      } else if (shape === 'atom') {
+        const nucC = Math.floor(count * 0.24), orbC = Math.floor(count * 0.60);
+        let cur = 0;
+        // Núcleo denso
+        for (let i = 0; i < nucC; i++) {
+          const idx = (cur++) * 3, u = Math.random(), v = Math.random(), th = u * 2 * Math.PI, ph = Math.acos(2 * v - 1);
+          const r = 1.65 * Math.cbrt(Math.random());
+          pos[idx] = r * Math.sin(ph) * Math.cos(th); pos[idx+1] = r * Math.cos(ph); pos[idx+2] = r * Math.sin(ph) * Math.sin(th);
+        }
+        // 4 Órbitas elípticas inclinadas
+        const obs = [{p: 0.85, y: 0}, {p: -0.85, y: 0}, {p: 0, y: 0.95, r: 0.55}, {p: 0, y: -0.95, r: -0.55}];
+        for (let i = 0; i < orbC; i++) {
+          const idx = (cur++) * 3, o = obs[i % 4], ang = Math.random() * Math.PI * 2;
+          const x0 = 8.8 * Math.cos(ang), y0 = 3.2 * Math.sin(ang), z0 = (Math.random() - 0.5) * 0.25;
+          const cp = Math.cos(o.p), sp = Math.sin(o.p), cy = Math.cos(o.y), sy = Math.sin(o.y);
+          pos[idx] = x0 * cy + z0 * sy;
+          pos[idx+1] = y0 * cp - (z0 * cy - x0 * sy) * sp;
+          pos[idx+2] = y0 * sp + (z0 * cy - x0 * sy) * cp;
+        }
+        // Paquetes de electrones
+        while (cur < count) {
+          const idx = (cur++) * 3, o = obs[cur % 4], ang = (cur % 3) * (Math.PI * 2 / 3) + (Math.random() - 0.5) * 0.35;
+          const x0 = 8.8 * Math.cos(ang), y0 = 3.2 * Math.sin(ang);
+          const cp = Math.cos(o.p), sp = Math.sin(o.p), cy = Math.cos(o.y), sy = Math.sin(o.y);
+          pos[idx] = x0 * cy + (Math.random() - 0.5) * 0.3;
+          pos[idx+1] = y0 * cp - (-x0 * sy) * sp + (Math.random() - 0.5) * 0.3;
+          pos[idx+2] = y0 * sp + (-x0 * sy) * cp + (Math.random() - 0.5) * 0.3;
+        }
+      } else if (shape === 'skull') {
+        const cranC = Math.floor(count * 0.45), jawC = Math.floor(count * 0.30);
+        let cur = 0;
+        for (let i = 0; i < cranC; i++) {
+          const idx = (cur++) * 3, u = Math.random(), v = Math.random(), th = u * 2 * Math.PI, ph = Math.acos(2 * v - 1);
+          let r = 3.6 * Math.cbrt(Math.random() * 0.5 + 0.5);
+          const x = r * Math.sin(ph) * Math.cos(th), y = 1.2 + r * Math.cos(ph) * 1.15, z = r * Math.sin(ph) * Math.sin(th) * 1.1;
+          const isEye = Math.hypot(Math.abs(x) - 1.4, y - 0.6, z - 2.8) < 1.1;
+          const isNose = Math.hypot(x, y + 0.5, z - 3.0) < 0.8;
+          if (isEye || isNose) { pos[idx] = x * 0.4; pos[idx+1] = y * 0.4; pos[idx+2] = z * 0.4; }
+          else { pos[idx] = x; pos[idx+1] = y; pos[idx+2] = z; }
+        }
+        for (let i = 0; i < jawC; i++) {
+          const idx = (cur++) * 3, t = Math.random();
+          if (Math.random() < 0.38) {
+            const ta = (Math.random() - 0.5) * Math.PI * 0.65;
+            pos[idx] = Math.sin(ta) * 2.1; pos[idx+1] = Math.random() > 0.5 ? -0.8 : -1.6; pos[idx+2] = Math.cos(ta) * 1.9 + 0.8;
+          } else {
+            const ja = (Math.random() - 0.5) * Math.PI, jw = 2.2 * (1.0 - t * 0.4);
+            pos[idx] = Math.sin(ja) * jw; pos[idx+1] = -1.2 - t * 3.2; pos[idx+2] = Math.cos(ja) * jw * 0.75 + 0.2;
+          }
+        }
+        while (cur < count) {
+          const idx = (cur++) * 3, side = Math.random() > 0.5 ? 1 : -1, ra = Math.random() * Math.PI * 2;
+          pos[idx] = side * 1.4 + Math.cos(ra) * 1.2; pos[idx+1] = 0.6 + Math.sin(ra) * 1.1; pos[idx+2] = 2.4;
+        }
+      } else if (shape === 'butterfly') {
+        const bodyC = Math.floor(count * 0.15);
+        let cur = 0;
+        for (let i = 0; i < bodyC; i++) {
+          const idx = (cur++) * 3;
+          if (Math.random() < 0.22) {
+            const side = Math.random() > 0.5 ? 1 : -1, t = Math.random();
+            pos[idx] = side * (0.2 + Math.pow(t, 1.8) * 1.8); pos[idx+1] = 2.0 + t * 2.2; pos[idx+2] = t * 0.8;
+          } else {
+            const y = -3.5 + Math.random() * 5.5, br = (0.35 + 0.25 * Math.sin((y + 3.5)/5.5 * Math.PI)) * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
+            pos[idx] = Math.cos(a) * br; pos[idx+1] = y; pos[idx+2] = Math.sin(a) * br;
+          }
+        }
+        while (cur < count) {
+          const idx = (cur++) * 3, side = Math.random() > 0.5 ? 1 : -1, isFore = Math.random() < 0.62;
+          if (isFore) {
+            const r = Math.sqrt(Math.random()) * 8.5, th = 0.15 + Math.random() * 1.25;
+            pos[idx] = (0.4 + r * Math.sin(th)) * side; pos[idx+1] = -0.5 + r * Math.cos(th); pos[idx+2] = Math.pow(r / 8.5, 1.4) * 2.5;
+          } else {
+            const r = Math.sqrt(Math.random()) * 6.2, th = 1.4 + Math.random() * 1.35;
+            pos[idx] = (0.35 + r * Math.sin(th)) * side; pos[idx+1] = -0.5 + r * Math.cos(th); pos[idx+2] = Math.pow(r / 6.2, 1.4) * 1.8;
+          }
+        }
+      } else if (shape === 'blackhole') {
+        const diskC = Math.floor(count * 0.65), lensC = Math.floor(count * 0.25);
+        let cur = 0;
+        for (let i = 0; i < diskC; i++) {
+          const idx = (cur++) * 3, r = 2.5 + Math.pow(Math.random(), 1.6) * 7.5, a = Math.random() * Math.PI * 2;
+          pos[idx] = r * Math.cos(a); pos[idx+1] = (Math.random() - 0.5) * (Math.exp(-r/3.5) * 0.5 + 0.15); pos[idx+2] = r * Math.sin(a);
+        }
+        for (let i = 0; i < lensC; i++) {
+          const idx = (cur++) * 3, a = Math.random() * Math.PI * 2, r = 2.6 + Math.random() * 4.2;
+          const arc = Math.random() > 0.5 ? 1 : -1;
+          pos[idx] = r * Math.cos(a); pos[idx+1] = Math.sqrt(Math.max(0, r*r - 5.76)) * 0.55 * arc; pos[idx+2] = (Math.random() - 0.5) * 0.8;
+        }
+        while (cur < count) {
+          const idx = (cur++) * 3, a = Math.random() * Math.PI * 2, r = 2.4 + (Math.random() - 0.5) * 0.18;
+          pos[idx] = r * Math.cos(a); pos[idx+1] = (Math.random() - 0.5) * 0.25; pos[idx+2] = r * Math.sin(a);
+        }
+      } else if (shape === 'fireworks') {
+        for (let i = 0; i < count; i++) {
+          const idx = i * 3;
+          const u = Math.random(), v = Math.random(), th = u * 2 * Math.PI, ph = Math.acos(2 * v - 1);
+          const spd = 2.0 + Math.pow(Math.random(), 0.6) * 7.5;
+          let dy = Math.cos(ph) - Math.pow(spd/9.5, 2) * 1.5;
+          pos[idx] = Math.sin(ph) * Math.cos(th) * spd; pos[idx+1] = 0.5 + dy * spd; pos[idx+2] = Math.sin(ph) * Math.sin(th) * spd;
+        }
+      } else if (shape === 'galaxy') {
+        const coreC = Math.floor(count * 0.3);
+        for (let i = 0; i < coreC; i++) {
+          const idx = i * 3, u = Math.random(), v = Math.random(), th = u * 2 * Math.PI, ph = Math.acos(2 * v - 1);
+          const r = Math.pow(Math.random(), 2.2) * 2.8;
+          pos[idx] = r * Math.sin(ph) * Math.cos(th); pos[idx+1] = r * Math.cos(ph) * 0.6; pos[idx+2] = r * Math.sin(ph) * Math.sin(th);
+        }
+        for (let i = coreC; i < count; i++) {
+          const idx = i * 3, r = 2.0 + Math.pow(Math.random(), 0.75) * 8.5;
+          const ang = ((i % 2) * Math.PI) + r * 0.75 + (Math.random() - 0.5) * 0.45;
+          pos[idx] = r * Math.cos(ang); pos[idx+1] = (Math.random() - 0.5) * (Math.exp(-r/4.5) * 2.5 + 0.3); pos[idx+2] = r * Math.sin(ang);
+        }
+      } else if (shape === 'dna') {
+        for (let i = 0; i < count; i++) {
+          const idx = i * 3, t = Math.random(), y = -7.5 + t * 15, ang = t * 7 * Math.PI + (i % 2 === 0 ? 0 : Math.PI);
+          const r = 3.4 + (Math.random() - 0.5) * 0.5;
+          pos[idx] = r * Math.cos(ang); pos[idx+1] = y; pos[idx+2] = r * Math.sin(ang);
+        }
+      } else { // Torus
+        for (let i = 0; i < count; i++) {
+          const idx = i * 3, u = Math.random() * Math.PI * 2, v = Math.random() * Math.PI * 2;
+          const rMod = 2.4 * (0.8 + 0.4 * Math.sin(3 * u));
+          pos[idx] = (5.5 + rMod * Math.cos(v)) * Math.cos(u);
+          pos[idx+1] = rMod * Math.sin(v) * 1.5;
+          pos[idx+2] = (5.5 + rMod * Math.cos(v)) * Math.sin(u);
+        }
+      }
+      return pos;
+    }
+
+    // --- TEXTURA DE BRILLO PROCEDURAL ---
+    function createGlowTexture() {
+      const c = document.createElement('canvas');
+      c.width = 64; c.height = 64;
+      const ctx = c.getContext('2d');
+      const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      g.addColorStop(0, 'rgba(255,255,255,1.0)');
+      g.addColorStop(0.3, 'rgba(255,255,255,0.75)');
+      g.addColorStop(0.7, 'rgba(255,255,255,0.2)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 64, 64);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    // --- SHADERS GLSL (100% GPU acelerado para Intel HD 520) ---
+    const vShader = `
+      attribute vec3 aTarget;
+      attribute vec3 aRandom;
+      attribute float aSize;
+      uniform float uMorph;
+      uniform float uTime;
+      uniform float uExpansion;
+      uniform float uScale;
+      uniform float uFistTension;
+      uniform float uBaseSize;
+      uniform vec3 uPrimaryColor;
+      uniform vec3 uSecondaryColor;
+      uniform float uColorMode;
+      varying vec3 vColor;
+      varying float vAlpha;
+
+      vec3 palette(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
+        return a + b * cos(6.28318 * (c * t + d));
+      }
+
+      void main() {
+        float morphT = smoothstep(0.0, 1.0, uMorph);
+        vec3 basePos = mix(position, aTarget, morphT);
+
+        vec3 harmonic = vec3(
+          sin(uTime * 1.6 + basePos.y * 0.35 + aRandom.x * 2.0),
+          cos(uTime * 1.4 + basePos.z * 0.35 + aRandom.y * 2.0),
+          sin(uTime * 1.5 + basePos.x * 0.35 + aRandom.z * 2.0)
+        ) * 0.22;
+
+        vec3 radialDir = length(basePos) > 0.001 ? normalize(basePos) : aRandom;
+        vec3 dispersion = (radialDir * 2.2 + aRandom * 1.8) * (uExpansion * 3.8);
+
+        float compression = uFistTension * 0.65;
+        vec3 jitter = aRandom * (sin(uTime * 50.0 + aRandom.x * 40.0) * uFistTension * 0.7);
+
+        vec3 finalPos = ((basePos * (1.0 - compression)) + harmonic + dispersion + jitter) * uScale;
+        vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+
+        float sizeFactor = 1.0 + uFistTension * 0.5 + uExpansion * 0.3;
+        gl_PointSize = uBaseSize * aSize * sizeFactor * (320.0 / -mvPosition.z);
+        gl_PointSize = clamp(gl_PointSize, 1.0, 64.0);
+
+        float distFromC = length(basePos) / 10.0;
+        float hFrac = clamp((basePos.y + 6.0) / 12.0, 0.0, 1.0);
+        vec3 col = uPrimaryColor;
+
+        if (uColorMode < 0.5) {
+          col = mix(uPrimaryColor, uSecondaryColor, distFromC * 0.35);
+        } else if (uColorMode < 1.5) {
+          col = mix(uPrimaryColor, uSecondaryColor, clamp(hFrac*0.7 + distFromC*0.3, 0.0, 1.0));
+        } else if (uColorMode < 2.5) {
+          col = palette(uTime * 0.08 + distFromC * 0.6 + aRandom.y * 0.1, vec3(0.5), vec3(0.5), vec3(1.0), vec3(0.0, 0.33, 0.67));
+        } else if (uColorMode < 3.5) { // Oro Buda / Sagrado
+          vec3 gold1 = vec3(1.0, 0.84, 0.2);
+          vec3 gold2 = vec3(1.0, 0.45, 0.05);
+          col = mix(gold1, gold2, clamp(distFromC * 0.8, 0.0, 1.0));
+          if (basePos.z < -0.5 && length(basePos.xy) < 5.0) col = mix(col, vec3(1.0, 0.98, 0.85), 0.45);
+        } else if (uColorMode < 4.5) { // Fuego
+          col = mix(vec3(0.95, 0.1, 0.2), vec3(1.0, 0.5, 0.0), hFrac);
+        } else { // Galaxia Neón
+          col = mix(vec3(0.0, 0.95, 1.0), vec3(0.85, 0.1, 0.95), distFromC);
+        }
+
+        col += vec3(0.2, 0.25, 0.3) * (uFistTension * 0.8 + uExpansion * 0.4);
+        vColor = col;
+        vAlpha = clamp(0.7 + uFistTension * 0.3, 0.2, 1.0);
+      }
+    `;
+
+    const fShader = `
+      uniform sampler2D uTexture;
+      uniform float uGlow;
+      varying vec3 vColor;
+      varying float vAlpha;
+      void main() {
+        vec2 coord = gl_PointCoord - vec2(0.5);
+        float d = length(coord);
+        if (d > 0.5) discard;
+        float intensity = pow(clamp(1.0 - d * 2.0, 0.0, 1.0), 1.6);
+        vec4 texCol = texture2D(uTexture, gl_PointCoord);
+        gl_FragColor = vec4(vColor * (1.0 + intensity * 0.75), intensity * texCol.a * vAlpha * uGlow);
+      }
+    `;
+
+    // --- INICIALIZAR THREE.JS ---
+    const container = document.getElementById('canvas-container');
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 100);
+    camera.position.set(0, 1.5, 22);
+
+    let geometry = new THREE.BufferGeometry();
+    let points = null;
+    let material = null;
+    let isMorphing = false;
+    let morphStart = 0;
+    const clock = new THREE.Clock();
+
+    function initParticles() {
+      if (points) { scene.remove(points); geometry.dispose(); material.dispose(); }
+      const pos = generateShape(config.shape, config.count);
+      const tar = new Float32Array(pos);
+      const rnd = new Float32Array(config.count * 3);
+      const siz = new Float32Array(config.count);
+
+      for (let i = 0; i < config.count; i++) {
+        const u = Math.random(), v = Math.random(), th = u * 2 * Math.PI, ph = Math.acos(2 * v - 1);
+        rnd[i*3] = Math.sin(ph)*Math.cos(th); rnd[i*3+1] = Math.cos(ph); rnd[i*3+2] = Math.sin(ph)*Math.sin(th);
+        siz[i] = 0.6 + Math.random() * 0.8;
+      }
+
+      geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geometry.setAttribute('aTarget', new THREE.BufferAttribute(tar, 3));
+      geometry.setAttribute('aRandom', new THREE.BufferAttribute(rnd, 3));
+      geometry.setAttribute('aSize', new THREE.BufferAttribute(siz, 1));
+
+      material = new THREE.ShaderMaterial({
+        vertexShader: vShader,
+        fragmentShader: fShader,
+        uniforms: {
+          uMorph: { value: 1.0 },
+          uTime: { value: 0.0 },
+          uExpansion: { value: 0.0 },
+          uScale: { value: 1.0 },
+          uFistTension: { value: 0.0 },
+          uBaseSize: { value: config.particleSize },
+          uPrimaryColor: { value: new THREE.Color(config.primaryColor) },
+          uSecondaryColor: { value: new THREE.Color(config.secondaryColor) },
+          uColorMode: { value: config.colorMode },
+          uGlow: { value: config.glow },
+          uTexture: { value: createGlowTexture() }
+        },
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+
+      points = new THREE.Points(geometry, material);
+      points.frustumCulled = false;
+      scene.add(points);
+    }
+
+    function morphTo(newShape) {
+      if (!geometry || !material) return;
+      const posAttr = geometry.attributes.position;
+      const tarAttr = geometry.attributes.aTarget;
+      const curPos = posAttr.array;
+      const curTar = tarAttr.array;
+      const prog = material.uniforms.uMorph.value;
+
+      for (let i = 0; i < config.count * 3; i++) {
+        curPos[i] = THREE.MathUtils.lerp(curPos[i], curTar[i], prog);
+      }
+      posAttr.needsUpdate = true;
+
+      const newTar = generateShape(newShape, config.count);
+      curTar.set(newTar);
+      tarAttr.needsUpdate = true;
+
+      config.shape = newShape;
+      material.uniforms.uMorph.value = 0.0;
+      morphStart = clock.getElapsedTime();
+      isMorphing = true;
+    }
+
+    initParticles();
+
+    // --- INTERACCIÓN Y ROTACIÓN CON RATÓN / TÁCTIL ---
+    container.addEventListener('pointerdown', (e) => {
+      isPointerDown = true;
+      prevPointer = { x: e.clientX, y: e.clientY };
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (!isPointerDown) return;
+      const dx = e.clientX - prevPointer.x;
+      const dy = e.clientY - prevPointer.y;
+      targetRotation.y += dx * 0.007;
+      targetRotation.x = Math.max(-1.4, Math.min(1.4, targetRotation.x + dy * 0.007));
+      prevPointer = { x: e.clientX, y: e.clientY };
+    });
+    window.addEventListener('pointerup', () => isPointerDown = false);
+    window.addEventListener('resize', () => {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+
+    // --- BUCLE DE RENDERIZADO 60 FPS ---
+    let frameCount = 0, lastFpsTime = 0;
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = Math.min(clock.getDelta(), 0.1);
+      const elapsed = clock.getElapsedTime();
+
+      frameCount++;
+      if (elapsed - lastFpsTime >= 0.5) {
+        document.getElementById('fps-counter').innerText = Math.round(frameCount / (elapsed - lastFpsTime));
+        frameCount = 0; lastFpsTime = elapsed;
+      }
+
+      smoothedScale = THREE.MathUtils.damp(smoothedScale, targetScale, 6.0, delta);
+      smoothedExpansion = THREE.MathUtils.damp(smoothedExpansion, targetExpansion, 7.0, delta);
+      smoothedFistTension = THREE.MathUtils.damp(smoothedFistTension, targetFistTension, 8.0, delta);
+
+      sceneRotation.x = THREE.MathUtils.damp(sceneRotation.x, targetRotation.x, 8.0, delta);
+      sceneRotation.y = THREE.MathUtils.damp(sceneRotation.y, targetRotation.y, 8.0, delta);
+
+      if (!isPointerDown) targetRotation.y += config.rotationSpeed * delta * 0.6;
+      if (points) { points.rotation.x = sceneRotation.x; points.rotation.y = sceneRotation.y; }
+
+      if (material) {
+        material.uniforms.uTime.value = elapsed;
+        material.uniforms.uScale.value = smoothedScale;
+        material.uniforms.uExpansion.value = smoothedExpansion * config.expansionMultiplier;
+        material.uniforms.uFistTension.value = smoothedFistTension;
+
+        if (isMorphing) {
+          const p = Math.min(1.0, (elapsed - morphStart) / 1.2);
+          material.uniforms.uMorph.value = p;
+          if (p >= 1.0) isMorphing = false;
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // --- INTEGRACIÓN MEDIAPIPE HANDS (VISIÓN POR WEBCAM) ---
+    let handsDetector = null;
+    const videoEl = document.getElementById('webcam-video');
+    const canvasOverlay = document.getElementById('landmark-canvas');
+    const ctxOverlay = canvasOverlay.getContext('2d');
+
+    async function initMediaPipeHands() {
+      if (typeof Hands === 'undefined') return;
+      handsDetector = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+
+      handsDetector.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      handsDetector.onResults(onHandResults);
+    }
+
+    function onHandResults(results) {
+      ctxOverlay.clearRect(0, 0, canvasOverlay.width, canvasOverlay.height);
+
+      if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+        document.getElementById('status-left-hand').innerText = 'No detectada';
+        document.getElementById('status-right-hand').innerText = 'No detectada';
+        document.getElementById('active-gesture-label').innerText = 'Buscando manos...';
+        return;
+      }
+
+      let leftFist = 0, rightFist = 0;
+      let leftDetected = false, rightDetected = false;
+      let posLeft = null, posRight = null;
+
+      for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+        const lms = results.multiHandLandmarks[i];
+        const isLeft = lms[0].x < 0.5;
+
+        const wrist = lms[0], mcp = lms[9];
+        const span = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
+        const tips = [8, 12, 16, 20];
+        let sumDist = 0;
+        for (const t of tips) sumDist += Math.hypot(lms[t].x - wrist.x, lms[t].y - wrist.y);
+        const ratio = (sumDist / 4) / Math.max(0.01, span);
+        const fist = Math.max(0, Math.min(1, (1.8 - ratio) / (1.8 - 0.85)));
+
+        if (isLeft) { leftDetected = true; leftFist = fist; posLeft = lms[0]; }
+        else { rightDetected = true; rightFist = fist; posRight = lms[0]; }
+
+        ctxOverlay.fillStyle = fist > 0.6 ? '#f59e0b' : '#38bdf8';
+        for (const pt of lms) {
+          ctxOverlay.beginPath();
+          ctxOverlay.arc(pt.x * canvasOverlay.width, pt.y * canvasOverlay.height, 2.5, 0, Math.PI * 2);
+          ctxOverlay.fill();
+        }
+      }
+
+      document.getElementById('status-left-hand').innerText = leftDetected ? 'Detectada' : 'No detectada';
+      document.getElementById('status-right-hand').innerText = rightDetected ? 'Detectada' : 'No detectada';
+      document.getElementById('num-left-fist').innerText = Math.round(leftFist * 100) + '%';
+      document.getElementById('num-right-fist').innerText = Math.round(rightFist * 100) + '%';
+      document.getElementById('bar-left-fist').style.width = (leftFist * 100) + '%';
+      document.getElementById('bar-right-fist').style.width = (rightFist * 100) + '%';
+
+      if (leftDetected && rightDetected) {
+        const dist = Math.hypot(posRight.x - posLeft.x, posRight.y - posLeft.y);
+        targetScale = 0.5 + Math.max(0.1, Math.min(0.9, dist)) * 2.2;
+        const avgFist = (leftFist + rightFist) / 2;
+        targetFistTension = avgFist;
+        const avgOpen = (1 - avgFist);
+        targetExpansion = avgOpen * (0.2 + Math.max(0, (dist - 0.35) * 2.5));
+
+        document.getElementById('val-scale').innerText = targetScale.toFixed(2) + 'x';
+        document.getElementById('val-exp').innerText = targetExpansion.toFixed(2);
+
+        if (avgFist > 0.7) {
+          document.getElementById('active-gesture-label').innerText = '⚡ Puños Cerrados (Compresión)';
+        } else if (avgOpen > 0.6) {
+          document.getElementById('active-gesture-label').innerText = '💥 Manos Abiertas (Expansión)';
+        } else {
+          document.getElementById('active-gesture-label').innerText = '🖐️ Control Activo (Distancia)';
+        }
+      } else {
+        const activeFist = leftDetected ? leftFist : rightFist;
+        targetFistTension = activeFist;
+        targetExpansion = (1 - activeFist) * 1.5;
+        targetScale = 0.9 + (1 - activeFist) * 0.3;
+        document.getElementById('val-scale').innerText = targetScale.toFixed(2) + 'x';
+        document.getElementById('val-exp').innerText = targetExpansion.toFixed(2);
+      }
+    }
+
+    async function startCamera(deviceId) {
+      if (!navigator.mediaDevices?.getUserMedia) return;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: 480, height: 360 }
+        });
+        videoEl.srcObject = stream;
+        await videoEl.play();
+
+        document.getElementById('camera-modal').classList.add('hidden');
+        document.getElementById('webcam-hud').classList.remove('hidden');
+
+        await initMediaPipeHands();
+
+        // Bucle de inferencia optimizado para i5-6200U
+        let lastSend = 0;
+        async function sendFrame() {
+          const now = performance.now();
+          if (now - lastSend > 40 && videoEl.readyState >= 2 && handsDetector) {
+            await handsDetector.send({ image: videoEl });
+            lastSend = now;
+          }
+          requestAnimationFrame(sendFrame);
+        }
+        sendFrame();
+
+        const devs = await navigator.mediaDevices.enumerateDevices();
+        const sel = document.getElementById('camera-select');
+        sel.innerHTML = '';
+        devs.filter(d => d.kind === 'videoinput').forEach((d, idx) => {
+          const opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.innerText = d.label || `Cámara ${idx + 1}`;
+          sel.appendChild(opt);
+        });
+      } catch (err) {
+        alert('Error al acceder a la cámara: ' + err.message);
+      }
+    }
+
+    // --- EVENT LISTENERS DE LA INTERFAZ ---
+    document.getElementById('btn-start-camera').addEventListener('click', () => startCamera());
+    document.getElementById('btn-dismiss-modal').addEventListener('click', () => {
+      document.getElementById('camera-modal').classList.add('hidden');
+    });
+    document.getElementById('btn-toggle-manual').addEventListener('click', () => {
+      document.querySelector('[data-tab="hands"]').click();
+    });
+    document.getElementById('btn-reset-view').addEventListener('click', () => {
+      targetRotation = { x: 0.1, y: 0 };
+      camera.position.set(0, 1.5, 22);
+    });
+    document.getElementById('btn-fullscreen').addEventListener('click', () => {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    });
+
+    // Colapsar dock (Modo Zen)
+    let isCollapsed = false;
+    document.getElementById('btn-collapse').addEventListener('click', () => {
+      isCollapsed = !isCollapsed;
+      const dock = document.getElementById('bottom-dock');
+      const lbl = document.getElementById('collapse-label');
+      if (isCollapsed) {
+        dock.classList.add('translate-y-[calc(100%-38px)]');
+        lbl.innerText = '▴ Mostrar Controles';
+      } else {
+        dock.classList.remove('translate-y-[calc(100%-38px)]');
+        lbl.innerText = '▾ Ocultar Controles (Modo Zen)';
+      }
+    });
+
+    // Pestañas
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => {
+          b.className = 'tab-btn px-3 py-1.5 text-xs font-semibold rounded-lg transition-all text-slate-400 hover:text-slate-200';
+        });
+        btn.className = 'tab-btn px-3 py-1.5 text-xs font-semibold rounded-lg transition-all bg-sky-500 text-slate-950';
+
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+        document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
+      });
+    });
+
+    // Selección de plantilla
+    document.querySelectorAll('.shape-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.shape-btn').forEach(b => {
+          b.className = 'shape-btn p-2.5 rounded-xl text-left border transition-all bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60';
+        });
+        btn.className = 'shape-btn p-2.5 rounded-xl text-left border transition-all bg-sky-500/15 border-sky-500/80 text-white';
+        morphTo(btn.dataset.shape);
+      });
+    });
+
+    // Paletas de color
+    document.querySelectorAll('.palette-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        config.primaryColor = btn.dataset.p;
+        config.secondaryColor = btn.dataset.s;
+        const m = btn.dataset.mode;
+        config.colorMode = m === 'single' ? 0 : m === 'gradient' ? 1 : m === 'rainbow' ? 2 : m === 'gold' ? 3 : m === 'fire' ? 4 : 5;
+        document.getElementById('input-primary-color').value = config.primaryColor;
+        document.getElementById('input-secondary-color').value = config.secondaryColor;
+        if (material) {
+          material.uniforms.uPrimaryColor.value.set(config.primaryColor);
+          material.uniforms.uSecondaryColor.value.set(config.secondaryColor);
+          material.uniforms.uColorMode.value = config.colorMode;
+        }
+      });
+    });
+
+    document.getElementById('input-primary-color').addEventListener('input', (e) => {
+      config.primaryColor = e.target.value;
+      if (material) material.uniforms.uPrimaryColor.value.set(config.primaryColor);
+    });
+    document.getElementById('input-secondary-color').addEventListener('input', (e) => {
+      config.secondaryColor = e.target.value;
+      if (material) material.uniforms.uSecondaryColor.value.set(config.secondaryColor);
+    });
+    document.getElementById('input-particle-size').addEventListener('input', (e) => {
+      config.particleSize = parseFloat(e.target.value);
+      document.getElementById('label-particle-size').innerText = config.particleSize.toFixed(1) + 'px';
+      if (material) material.uniforms.uBaseSize.value = config.particleSize;
+    });
+    document.getElementById('input-glow').addEventListener('input', (e) => {
+      config.glow = parseFloat(e.target.value);
+      document.getElementById('label-glow').innerText = Math.round(config.glow * 100) + '%';
+      if (material) material.uniforms.uGlow.value = config.glow;
+    });
+
+    // Controles manuales
+    function updateManual() {
+      const f = parseFloat(document.getElementById('sim-fist').value);
+      const d = parseFloat(document.getElementById('sim-dist').value);
+      const e = parseFloat(document.getElementById('sim-exp').value);
+      document.getElementById('lbl-sim-fist').innerText = Math.round(f * 100) + '%';
+      document.getElementById('lbl-sim-dist').innerText = (0.5 + d * 2.0).toFixed(2) + 'x';
+      document.getElementById('lbl-sim-exp').innerText = Math.round(e * 100) + '%';
+      targetFistTension = f;
+      targetScale = 0.5 + d * 2.0;
+      targetExpansion = e * 2.5;
+    }
+    document.getElementById('sim-fist').addEventListener('input', updateManual);
+    document.getElementById('sim-dist').addEventListener('input', updateManual);
+    document.getElementById('sim-exp').addEventListener('input', updateManual);
+
+    // Perfiles de rendimiento
+    document.querySelectorAll('.perf-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.perf-btn').forEach(b => {
+          b.className = 'perf-btn p-3 rounded-xl border text-left bg-slate-950/40 border-slate-800 text-slate-400';
+        });
+        btn.className = 'perf-btn p-3 rounded-xl border text-left bg-sky-500/15 border-sky-500/70 text-white';
+        const p = btn.dataset.perf;
+        config.count = p === 'eco' ? 10000 : p === 'ultra' ? 30000 : 18000;
+        document.getElementById('pts-counter').innerText = config.count.toLocaleString();
+        initParticles();
+      });
+    });
+  </script>
+</body>
+</html>
